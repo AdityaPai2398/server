@@ -317,6 +317,16 @@ build_gtid_pos_create_query(THD *thd, String *query,
 }
 
 
+/* Helper function to issue a warning by gtid_pos_table_creation(). */
+inline bool is_lower_case(const char *name)
+{
+  char buf[SAFE_NAME_LEN];
+  strmake_buf(buf, name);
+  my_casedn_str(files_charset_info, buf);
+
+  return strcmp(name, buf) == 0;
+}
+
 static int
 gtid_pos_table_creation(THD *thd, plugin_ref engine, LEX_CSTRING *table_name)
 {
@@ -346,6 +356,14 @@ gtid_pos_table_creation(THD *thd, plugin_ref engine, LEX_CSTRING *table_name)
               FALSE, FALSE);
   if (unlikely(thd->is_error()))
     err= 1;
+  /* The warning is relevant to 10.3 and earlier. */
+  if (!is_lower_case(const_cast<char*>(table_name->str)))
+    sql_print_warning("The automatically created table '%s' name is not "
+                      "entirely in lowercase. The table name will be converted "
+                      "to lowercase to any future upgrade to 10.4.0 and later "
+                      "version where it will be auto-created at once "
+                      "in lowercase.",
+                      table_name->str);
 end:
   thd->variables.option_bits= thd_saved_option;
   thd->reset_query();
