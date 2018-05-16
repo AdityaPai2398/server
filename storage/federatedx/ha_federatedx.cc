@@ -341,6 +341,8 @@ static const uint sizeof_trailing_comma= sizeof(", ") - 1;
 static const uint sizeof_trailing_and= sizeof(" AND ") - 1;
 static const uint sizeof_trailing_where= sizeof(" WHERE ") - 1;
 
+static Time_zone *UTC= 0;
+
 /* Static declaration for handerton */
 static handler *federatedx_create_handler(handlerton *hton,
                                          TABLE_SHARE *table,
@@ -864,7 +866,7 @@ uint ha_federatedx::convert_row_to_internal_format(uchar *record,
   Time_zone *saved_time_zone= table->in_use->variables.time_zone;
   DBUG_ENTER("ha_federatedx::convert_row_to_internal_format");
 
-  table->in_use->variables.time_zone= my_tz_OFFSET0;
+  table->in_use->variables.time_zone= UTC;
   lengths= io->fetch_lengths(result);
 
   for (field= table->field; *field; field++, column++)
@@ -1225,7 +1227,7 @@ bool ha_federatedx::create_where_from_key(String *to,
   if (start_key == NULL && end_key == NULL)
     DBUG_RETURN(1);
 
-  table->in_use->variables.time_zone= my_tz_OFFSET0;
+  table->in_use->variables.time_zone= UTC;
   old_map= dbug_tmp_use_all_columns(table, table->write_set);
   for (uint i= 0; i <= 1; i++)
   {
@@ -1589,6 +1591,12 @@ static FEDERATEDX_SHARE *get_share(const char *table_name, TABLE *table)
   init_alloc_root(&mem_root, "federated", 256, 0, MYF(0));
 
   mysql_mutex_lock(&federatedx_mutex);
+
+  if (unlikely(!UTC))
+  {
+    String tz_00_name(STRING_WITH_LEN("+00:00"), &my_charset_bin);
+    UTC= my_tz_find(current_thd, &tz_00_name);
+  }
 
   tmp_share.share_key= table_name;
   tmp_share.share_key_length= (int)strlen(table_name);
@@ -1990,7 +1998,7 @@ int ha_federatedx::write_row(uchar *buf)
   my_bitmap_map *old_map= dbug_tmp_use_all_columns(table, table->read_set);
   DBUG_ENTER("ha_federatedx::write_row");
 
-  table->in_use->variables.time_zone= my_tz_OFFSET0;
+  table->in_use->variables.time_zone= UTC;
   values_string.length(0);
   insert_field_value_string.length(0);
 
@@ -2352,7 +2360,7 @@ int ha_federatedx::update_row(const uchar *old_data, const uchar *new_data)
   */
 
   Time_zone *saved_time_zone= table->in_use->variables.time_zone;
-  table->in_use->variables.time_zone= my_tz_OFFSET0;
+  table->in_use->variables.time_zone= UTC;
   for (Field **field= table->field; *field; field++)
   {
     if (bitmap_is_set(table->write_set, (*field)->field_index))
@@ -2466,7 +2474,7 @@ int ha_federatedx::delete_row(const uchar *buf)
   delete_string.append(STRING_WITH_LEN(" WHERE "));
 
   Time_zone *saved_time_zone= table->in_use->variables.time_zone;
-  table->in_use->variables.time_zone= my_tz_OFFSET0;
+  table->in_use->variables.time_zone= UTC;
   for (Field **field= table->field; *field; field++)
   {
     Field *cur_field= *field;
@@ -3639,7 +3647,7 @@ int ha_federatedx::discover_assisted(handlerton *hton, THD* thd,
     goto err2;
 
   query.copy(rdata[1], rlen[1], cs);
-  cut_offset= query.length() - cut_clause.length;
+  cut_offset= (int)query.length() - (int)cut_clause.length;
   if (cut_offset > 0 && !memcmp(query.ptr() + cut_offset,
                                 cut_clause.str, cut_clause.length))
     query.length(cut_offset);
